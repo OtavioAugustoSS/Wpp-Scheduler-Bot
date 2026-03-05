@@ -13,9 +13,9 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite+aiosqlite:///./bot.db"
     
     # WhatsApp
-    WHATSAPP_VERIFY_TOKEN: str = "my_secure_verify_token"
-    WHATSAPP_API_TOKEN: str = "placeholder_token"
-    WHATSAPP_PHONE_ID: str = "placeholder_id" 
+    WHATSAPP_VERIFY_TOKEN: str
+    WHATSAPP_API_TOKEN: str
+    WHATSAPP_PHONE_ID: str
     
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
