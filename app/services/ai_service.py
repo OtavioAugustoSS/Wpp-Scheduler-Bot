@@ -27,7 +27,7 @@ Você DEVE retornar EXCLUSIVAMENTE um JSON válido. Não inclua markdown, format
 
 A estrutura do JSON obrigatória é:
 {
-  "action": "schedule_once" | "schedule_recurring" | "chat",
+  "action": "schedule_once" | "schedule_recurring" | "list_reminders" | "chat",
   "datetime_iso": "YYYY-MM-DDTHH:MM:SS" (apenas se action=schedule_once, senão null),
   "cron_pattern": "string do cron" (apenas se action=schedule_recurring, ex: "0 8 * * *", senão null),
   "reminder_text": "texto do lembrete a ser salvo no banco",
@@ -38,21 +38,37 @@ Regras adicionais do JSON:
 1. Se precisar conversar, tirar dúvidas ou responder algo geral, use "action": "chat" e coloque a sua fala em "response_message".
 2. Quando o usuário DEFINIR um evento único, use "action": "schedule_once", calcule o horário no "datetime_iso" baseado no horário atual, e deixe a sua confirmação em "response_message".
 3. Quando for uma tarefa recorrente (ex: rotina diária), use "action": "schedule_recurring" e crie o "cron_pattern".
-4. "reminder_text" será a mensagem exata do lembrete no futuro.
-5. Sempre insira todos os campos do JSON, usando null onde não houver valor.
+4. Se o usuário pedir para ver, listar, conferir sua rotina ou lembretes, use "action": "list_reminders". O bot cuidará de formatar a lista, então sua "response_message" pode ser apenas "Aqui estão seus lembretes atuais:".
+5. "reminder_text" será a mensagem exata do lembrete no futuro.
+6. Sempre insira todos os campos do JSON, usando null onde não houver valor.
+
+CONTEXTO DADO PELO SISTEMA:
+Sempre considere a lista de lembretes ativos fornecida e o histórico recente da conversa para evitar repetir perguntas ou não saber o contexto do que o usuário está falando.
 """
 
-async def process_user_message(user_text: str, current_time_iso: str) -> Dict[str, Any]:
+async def process_user_message(
+    user_text: str, 
+    current_time_iso: str,
+    reminders_context: str = "Nenhum lembrete no momento.",
+    chat_history: list = None
+) -> Dict[str, Any]:
     """
     Process user text using NVIDIA NIM LLM to determine intent and extract data.
     """
+    if chat_history is None:
+        chat_history = []
+        
     try:
+        # Build the dynamic system prompt with context
+        dynamic_system_prompt = f"Current time: {current_time_iso}\n\nLEMBRETES ATIVOS DO USUÁRIO NO BANCO DE DADOS:\n{reminders_context}\n\n{SYSTEM_PROMPT}"
+        
+        messages = [{"role": "system", "content": dynamic_system_prompt}]
+        messages.extend(chat_history)
+        messages.append({"role": "user", "content": user_text})
+        
         response = await client.chat.completions.create(
             model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": f"Current time: {current_time_iso}\n{SYSTEM_PROMPT}"},
-                {"role": "user", "content": user_text}
-            ],
+            messages=messages,
             temperature=0.2, # Low temperature for more deterministic JSON
             max_tokens=1024,
             stream=False
