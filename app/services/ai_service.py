@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Dict, Any
 from openai import AsyncOpenAI
 from app.core.config import settings
@@ -44,6 +45,8 @@ Regras adicionais do JSON:
 
 CONTEXTO DADO PELO SISTEMA:
 Sempre considere a lista de lembretes ativos fornecida e o histórico recente da conversa para evitar repetir perguntas ou não saber o contexto do que o usuário está falando.
+
+CRÍTICO: Mesmo quando questionado sobre sua identidade, função ou em bate-papos casuais, NUNCA quebre a estrutura do JSON. Use a action "chat" e coloque sua explicação em "response_message".
 """
 
 async def process_user_message(
@@ -76,26 +79,38 @@ async def process_user_message(
 
         content = response.choices[0].message.content.strip()
         
-        # Attempt to clean up if the model adds markdown code blocks
-        if content.startswith("```json"):
-            content = content[7:]
-        if content.startswith("```"):
-            content = content[3:]
-        if content.endswith("```"):
-            content = content[:-3]
+        # Tentativa 1: Limpeza básica de markdown
+        cleaned_content = content
+        if cleaned_content.startswith("```json"):
+            cleaned_content = cleaned_content[7:]
+        if cleaned_content.startswith("```"):
+            cleaned_content = cleaned_content[3:]
+        if cleaned_content.endswith("```"):
+            cleaned_content = cleaned_content[:-3]
+        
+        cleaned_content = cleaned_content.strip()
+        
+        try:
+            return json.loads(cleaned_content)
+        except json.JSONDecodeError:
+            # Tentativa 2: Extrair apenas o bloco JSON usando Regex
+            json_match = re.search(r'\{.*\}', content, re.DOTALL)
+            if json_match:
+                try:
+                    return json.loads(json_match.group(0))
+                except json.JSONDecodeError:
+                    pass
             
-        result = json.loads(content.strip())
-        return result
+            # Tentativa 3: Fallback Inteligente (A IA quebrou o JSON completamente)
+            print(f"Fallback acionado. A IA retornou texto puro: {content}")
+            return {
+                "action": "chat",
+                "datetime_iso": None,
+                "cron_pattern": None,
+                "reminder_text": None,
+                "response_message": content # Usa o próprio texto puro como resposta
+            }
 
-    except json.JSONDecodeError:
-        # Fallback if raw text is returned
-        return {
-            "action": "chat",
-            "datetime_iso": None,
-            "cron_pattern": None,
-            "reminder_text": None,
-            "response_message": "Sorry, I couldn't process that request clearly. Could you try again?"
-        }
     except Exception as e:
         # Log error in production
         print(f"Error calling LLM: {e}")
